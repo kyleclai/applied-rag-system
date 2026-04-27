@@ -28,30 +28,17 @@ The result is a system that not only ranks songs but *explains* why they fit —
 
 ## System Architecture
 
-```
-User Profile (genre, mood, energy)
-         ↓
-┌──────────────────────────────────────────────┐
-│            RecommendationAgent               │
-│  Step 1: Profile Analyzer                    │
-│    → extract search terms from profile       │
-│  Step 2: Knowledge Retriever                 │ ← music_kb/*.md
-│    → TF-IDF inverted index retrieval         │   (genres, moods,
-│                                              │    energy, artists)
-│  Step 3: Song Scorer (original Module 3)     │ ← data/songs.csv
-│    → score_song() + recommend_songs()        │
-│  Step 4: LLM Explainer (few-shot Gemini)     │ ← GEMINI_API_KEY
-│    → grounded explanation using KB chunks    │
-│  Step 5: Confidence Assessor                 │
-│    → 0.0–1.0 score + guardrail at 0.4        │
-└──────────────────────────────────────────────┘
-         ↓
-Recommendations + AI Explanations + Confidence Score
-         ↓
-   Streamlit UI (3 modes) / CLI / Test Harness
-```
+![System Architecture](assets/architecture.png)
 
-The system also supports a **Fine-Tuning Comparison** mode that shows few-shot vs. baseline LLM output side by side, and a **Baseline** mode that runs only the original VibeFinder 1.0 scoring for direct comparison.
+The diagram above shows the full 5-step pipeline. A user enters their music taste profile (genre, mood, energy level), which flows through:
+
+1. **Profile Analyzer** — breaks the profile into search keywords
+2. **Knowledge Retriever** — searches `music_kb/` documents for relevant genre, mood, and energy descriptions
+3. **Song Scorer** — runs the original VibeFinder 1.0 weighted algorithm against all 20 songs
+4. **LLM Explainer** — Gemini 2.5 Flash writes grounded explanations using *only* the retrieved knowledge chunks
+5. **Confidence Assessor** — scores explanation quality (0.0–1.0) and blocks the response if confidence falls below 0.4
+
+The system supports three modes: **RAG-Enhanced** (full pipeline), **Baseline** (original scoring only, no LLM), and **Fine-Tuning Comparison** (few-shot vs. generic prompt side by side).
 
 ---
 
@@ -111,61 +98,100 @@ python evaluation/retrieval_eval.py
 
 ### Example 1 — Pop / Happy / High Energy
 
-**Profile:** `genre=pop | mood=happy | energy=0.8`
+**Profile:** `genre=pop | mood=happy | energy=0.8 | mode=balanced`
 
-**Top 5 songs (scored):**
+**Agent pipeline output:**
+- Step 1 extracted search terms: `['pop', 'happy', 'high energy']`
+- Step 2 retrieved 4 chunks from: `artist_context.md`, `energy_profiles.md`, `genres.md`
+- Step 3 top song: Sunrise City (3.98)
+- Step 5 confidence: **0.92** | Guardrail: PASSED
+
+**Top 5 songs:**
 ```
-#1  Sunrise City  — Neon Echo         pop/happy     score 3.98
-#2  Gym Hero      — Max Pulse         pop/intense   score 2.87
-#3  Rooftop Lights — Indigo Parade    indie pop/happy score 1.96
-#4  Block Party Anthem — Crowd Control hip-hop/confident 1.78
-#5  Overdrive     — Pulse Grid        edm/energetic  score 1.93
+#1  Sunrise City      — Neon Echo        pop / happy      3.98
+#2  Gym Hero          — Max Pulse        pop / intense    2.87
+#3  Rooftop Lights    — Indigo Parade    indie pop / happy 1.96
+#4  Block Party Anthem — Crowd Control   hip-hop / confident 0.98
+#5  Night Drive Loop  — Neon Echo        synthwave / moody 0.95
 ```
 
-**AI Explanation (RAG):**
-> Sunrise City is practically purpose-built for your taste — Neon Echo delivers pop's signature melodic clarity with irresistible happy energy at 0.82. The production feels current without being gimmicky. Gym Hero lands in second: it shares your genre but trades some happiness for intensity, pushing to 0.93 energy — perfect if your mood shifts toward wanting to push harder. Rooftop Lights brings indie pop's textural personality to the same happy mood, feeling effortless rather than driven.
+**AI Explanation (Gemini, grounded in retrieved KB):**
 
-**Confidence:** 0.70 | **Guardrail:** PASSED
+> For a quintessential high-energy pop experience, "Sunrise City" by Neon Echo is an ideal match. Its metadata perfectly aligns with your desire for happy pop at 0.82 energy, embodying the spirit of celebratory pop.
+>
+> While technically indie pop, Indigo Parade's "Rooftop Lights" delivers exactly the happy, high-valence feel you're seeking at a vibrant 0.76 energy. This 2010 track showcases indie pop's ability to blend pop's emotional directness with a more textured, personality-driven sound, offering a nostalgic quality from that era.
+>
+> "Gym Hero" by Max Pulse stays firmly in your preferred pop genre, offering a significant boost in energy to 0.93. While it shifts from a happy to a more intense mood, the retrieved context does not provide further details on this specific track or artist.
+>
+> If you're open to a slight genre shift, "Block Party Anthem" by Crowd Control maintains a high energy level at 0.78. This hip-hop track pivots from happy to a confident mood, aligning with the "hip-hop anthems" described for high energy + confident contexts.
+>
+> "Night Drive Loop" by Neon Echo deviates more significantly from your core preferences, moving into synthwave with a moody character at 0.75 energy. The available context does not offer specific details about this particular track.
 
 ---
 
 ### Example 2 — Jazz / Relaxed / Low Energy
 
-**Profile:** `genre=jazz | mood=relaxed | energy=0.37`
+**Profile:** `genre=jazz | mood=relaxed | energy=0.35 | mode=balanced`
 
-**Top 5 songs (scored):**
+**Agent pipeline output:**
+- Step 1 extracted search terms: `['jazz', 'relaxed', 'low energy']`
+- Step 2 retrieved 4 chunks from: `artist_context.md`, `energy_profiles.md`, `genres.md`
+- Step 3 top song: Coffee Shop Stories (3.98)
+- Step 5 confidence: **1.00** | Guardrail: PASSED
+
+**Top 5 songs:**
 ```
-#1  Coffee Shop Stories — Slow Stereo  jazz/relaxed  score 4.00
-#2  Adagio in Grey — Vienna Strings    classical/melancholic score 1.13
-#3  River Bottom Blues — Dusty Hale   blues/soulful  score 1.09
-#4  Library Rain — Paper Lanterns     lofi/chill     score 0.98
-#5  Campfire Lullaby — Cedar & Ash    folk/peaceful  score 0.71
+#1  Coffee Shop Stories — Slow Stereo   jazz / relaxed   3.98
+#2  Library Rain        — Paper Lanterns lofi / chill     1.00
+#3  Focus Flow          — LoRoom         lofi / focused   0.95
+#4  Campfire Lullaby    — Cedar & Ash    folk / peaceful  0.94
+#5  Midnight Coding     — LoRoom         lofi / chill     0.93
 ```
 
-**AI Explanation (RAG):**
-> Coffee Shop Stories achieves a rare perfect score — Slow Stereo's jazz warmth, relaxed mood, and 0.37 energy align precisely with your profile. Jazz's conversational quality, where instruments respond to each other in real time, is exactly what this track delivers. Adagio in Grey reaches slightly outside your genre into classical, but its meditative low energy and emotional depth make it a natural companion for a quiet evening.
+**AI Explanation (Gemini, grounded in retrieved KB):**
 
-**Confidence:** 0.70 | **Guardrail:** PASSED
+> Coffee Shop Stories by Slow Stereo is an almost perfect match for your profile, aligning precisely with your jazz preference at a relaxed 0.37 energy. This track embodies the warm, conversational intimacy of live small-venue jazz, capturing its spontaneous feeling through acoustic production where musicians respond in real time. It's ideal for low-energy listening and your relaxed mood, reflecting the genre's spontaneity and emotional warmth.
+>
+> Library Rain by Paper Lanterns matches your target energy of 0.35 precisely, offering a chill lofi experience. While outside your primary jazz genre, its low-key vibe perfectly complements a relaxed mood.
+>
+> Focus Flow by LoRoom registers at 0.40 energy, a gentle nudge above your preference but still firmly in the low-energy range. Its focused mood aligns well with a relaxed yet engaged listening experience, even if it steps outside the jazz genre.
+>
+> Campfire Lullaby by Cedar & Ash drifts into the folk genre, offering a peaceful mood at a slightly lower energy of 0.29. This track could perfectly suit moments when you're seeking to deepen your relaxed state, even though it moves away from jazz.
+>
+> Midnight Coding by LoRoom provides a chill lofi sound at 0.42 energy, sitting just above your preferred intensity. This track offers a familiar relaxed atmosphere, making it a good fit if you're open to exploring beyond jazz.
 
 ---
 
 ### Example 3 — Metal / Aggressive / High Energy
 
-**Profile:** `genre=metal | mood=aggressive | energy=0.97`
+**Profile:** `genre=metal | mood=aggressive | energy=1.0 | mode=energy-focused`
 
-**Top 5 songs (scored):**
+**Agent pipeline output:**
+- Step 1 extracted search terms: `['metal', 'aggressive', 'high energy']`
+- Step 2 retrieved 4 chunks from: `artist_context.md`, `energy_profiles.md`, `genres.md`
+- Step 3 top song: Iron Curtain (3.94)
+- Step 5 confidence: **0.80** | Guardrail: PASSED
+
+**Top 5 songs:**
 ```
-#1  Iron Curtain — Wrath Engine       metal/aggressive score 4.00
-#2  Overdrive    — Pulse Grid         edm/energetic    score 1.96
-#3  Storm Runner — Voltline           rock/intense     score 1.06
-#4  Gym Hero     — Max Pulse          pop/intense      score 0.90
-#5  Block Party Anthem — Crowd Control hip-hop/confident 0.87
+#1  Iron Curtain  — Wrath Engine   metal / aggressive  3.94
+#2  Overdrive     — Pulse Grid     edm / energetic     1.92
+#3  Gym Hero      — Max Pulse      pop / intense       1.86
+#4  Storm Runner  — Voltline       rock / intense      1.82
+#5  Sunrise City  — Neon Echo      pop / happy         1.64
 ```
 
-**AI Explanation (RAG):**
-> Iron Curtain is the catalog's most extreme track — Wrath Engine operates at maximum sonic intensity (0.97 energy, 174 BPM, metal/aggressive), and it scores a perfect match against your profile. Metal provides cathartic emotional release through extreme sonic density, and this track delivers exactly that. Overdrive is the only other high-energy option that comes close in raw intensity, though EDM's energetic euphoria is a different kind of force than metal's aggression.
+**AI Explanation (Gemini, grounded in retrieved KB):**
 
-**Confidence:** 0.70 | **Guardrail:** PASSED
+> Iron Curtain by Wrath Engine is a perfect match, landing precisely within your desired metal genre and aggressive mood with 0.97 energy. This track stands out as the most intense in the catalog, channeling anger, power, and catharsis through its extreme sonic density and distorted guitars, defining the very essence of metal.
+>
+> Overdrive by Pulse Grid brings a high-energy punch at 0.96 energy. While its EDM genre is a departure from metal, its high energy level makes it a worthy consideration for intense listening, even if the specific details on its sonic character are not provided in the current knowledge base.
+>
+> Storm Runner by Voltline shifts slightly into rock, but with 0.91 energy and an intense mood, it remains firmly in high-impact territory. Voltline's sound draws from hard rock and alternative metal traditions, offering distorted guitars and driven drumming for those seeking music with physical force.
+>
+> Gym Hero by Max Pulse pushes the intensity to 0.93 energy. While it leans into the pop genre, its intense mood and high energy could still resonate when looking for a powerful, driving sound that deviates slightly from pure metal aggression.
+>
+> Sunrise City by Neon Echo provides a significant shift in mood — bringing pop and happiness at 0.82 energy. As the retrieved knowledge notes, high energy covers a wide emotional range, and this track offers a completely different emotional experience from the core aggressive metal preference, hence its position at the bottom of the list.
 
 ---
 
