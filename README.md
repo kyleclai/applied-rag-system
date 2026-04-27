@@ -1,207 +1,243 @@
-# 🎵 Music Recommender Simulation
+# 🎵 VibeFinder RAG — Applied AI System
+
+## Base Project
+
+This project extends **Module 3 — Music Recommender Simulation (VibeFinder 1.0)**.
+
+The original system (`src/recommender.py`) was a content-based music recommender that scored a 20-song catalog against a user's stated taste profile using weighted signals (genre match, mood match, energy proximity). It produced ranked results with score breakdowns but had no language model, no knowledge retrieval, and no natural-language explanation capability.
 
 ## Project Summary
 
-In this project you will build and explain a small music recommender system.
+VibeFinder RAG extends the original recommender into a full **Retrieval-Augmented Generation (RAG)** system with an agentic multi-step pipeline. When a user provides their music taste profile, the system:
 
-Your goal is to:
+1. Extracts search terms from the profile
+2. Retrieves relevant chunks from a music knowledge base (`music_kb/*.md`)
+3. Scores all 20 songs using the original weighted algorithm
+4. Asks Gemini 2.5 Flash to generate grounded, music-journalist-style explanations using *only* the retrieved context
+5. Assesses confidence and applies a guardrail if the explanation is insufficiently grounded
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-VibeFinder 1.0 is a content-based music recommender that scores every song in a 20-song catalog against a user's stated preferences (genre, mood, and target energy level) and returns a ranked list of the top 5 matches with plain-language explanations. It demonstrates how streaming platforms translate taste data into suggestions, and where simple scoring systems can create biases or filter bubbles.
-
----
-
-## How The System Works
-
-Real-world recommenders like Spotify and TikTok use a mix of two main approaches. **Collaborative filtering** finds users with similar listening histories and assumes you'll like what they liked — it requires a large crowd of users to work well. **Content-based filtering** looks only at the attributes of the songs themselves (genre, mood, energy) and matches them to a user's stated taste profile — it works with a single user and no history. This simulation uses content-based filtering because it is transparent, explainable, and well-suited to a small catalog.
-
-### Song Features
-
-Each `Song` object uses these attributes from `data/songs.csv`:
-
-| Feature | Type | Used in scoring | Description |
-|---|---|---|---|
-| `genre` | string | yes | Categorical label (e.g., pop, lofi, rock, jazz) |
-| `mood` | string | yes | Categorical label (e.g., happy, chill, intense, moody) |
-| `energy` | float 0.0–1.0 | yes | How energetic/loud the track feels |
-| `popularity` | int 0–100 | yes (optional) | Relative chart/stream popularity |
-| `release_decade` | int | yes (optional) | Decade released: 2000, 2010, or 2020 |
-| `tempo_bpm` | float | stored only | Beats per minute |
-| `valence` | float 0.0–1.0 | stored only | Musical positivity |
-| `danceability` | float 0.0–1.0 | stored only | How suited to dancing |
-| `acousticness` | float 0.0–1.0 | stored only | How acoustic (vs. produced) it sounds |
-
-### User Profile
-
-A `UserProfile` stores:
-- `favorite_genre` — the genre the user wants to match
-- `favorite_mood` — the mood the user wants to match
-- `target_energy` — a float 0.0–1.0 representing how intense they want the music
-- `target_popularity` *(optional)* — preferred popularity range 0–100
-- `target_decade` *(optional)* — preferred release decade (2000, 2010, or 2020)
-
-### Algorithm Recipe (Scoring Rule)
-
-Weights for the three primary signals are controlled by the **scoring mode**:
-
-| Mode | Genre weight | Mood weight | Energy weight | Max base score |
-|---|---|---|---|---|
-| `balanced` | 2.0 | 1.0 | ×1.0 | 4.0 |
-| `genre-first` | 4.0 | 0.5 | ×0.5 | 5.0 |
-| `mood-first` | 0.5 | 4.0 | ×0.5 | 5.0 |
-| `energy-focused` | 1.0 | 1.0 | ×2.0 | 4.0 |
-
-Optional bonus signals (added on top of any mode, up to +1.0 total):
-
-```
-score = 0.0
-
-if song.genre == user.genre         →  + genre_weight  (mode-controlled)
-if song.mood  == user.mood          →  + mood_weight   (mode-controlled)
-energy_score  = (1.0 - |song.energy - user.energy|) × energy_weight  →  +0.0 to +energy_weight
-
-# optional — only scored when user provides these preferences:
-popularity_score = (1.0 - |song.popularity - user.target_popularity| / 100) × 0.5  →  up to +0.5
-if song.release_decade == user.target_decade  →  +0.5
-```
-
-Energy uses a proximity formula so songs *close* to the target energy earn partial credit regardless of whether they are high or low energy.
-
-### Ranking Rule
-
-After scoring every song, the system sorts all results from highest to lowest score and returns the top K results. This two-step process (score first, rank second) is necessary because a score for one song means nothing without comparing it to all other scores.
-
-### Data Flow Diagram
-
-```mermaid
-flowchart TD
-    A["User Profile\n(genre, mood, target_energy)"] --> C
-    B["data/songs.csv\n(20 songs)"] --> C
-    C["For each song in catalog..."]
-    C --> D{"Genre match?"}
-    D -- Yes --> E["+2.0 pts"]
-    D -- No --> F["+0.0 pts"]
-    E --> G{"Mood match?"}
-    F --> G
-    G -- Yes --> H["+1.0 pts"]
-    G -- No --> I["+0.0 pts"]
-    H --> J["Energy proximity\n1.0 - abs(song_energy - target_energy)"]
-    I --> J
-    J --> K["Song total score + reasons list"]
-    K --> C
-    C --> L["All 20 songs scored"]
-    L --> M["sorted() by score descending"]
-    M --> N["Return Top K results"]
-```
-
-### Potential Bias
-
-In the default `balanced` mode, the genre weight (+2.0) is double the mood weight (+1.0), so genre alignment dominates. Switching to `mood-first` mode reverses this — a happy song from the wrong genre can outrank an intense song from the right genre. The scoring mode lets you control which signal matters most, but no mode eliminates the underlying problem: with only 1–2 songs per genre in the catalog, a genre match almost guarantees a top-3 finish regardless of how well the song fits the mood or energy.
+The result is a system that not only ranks songs but *explains* why they fit — with explanations backed by retrieved facts, not free-form generation.
 
 ---
 
-## Getting Started
+## Demo Walkthrough
 
-### Setup
+> 🎥 **[Loom video walkthrough — add link here before submission]**
 
-1. Create a virtual environment (optional but recommended):
+---
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
+## System Architecture
 
-2. Install dependencies
+```
+User Profile (genre, mood, energy)
+         ↓
+┌──────────────────────────────────────────────┐
+│            RecommendationAgent               │
+│  Step 1: Profile Analyzer                    │
+│    → extract search terms from profile       │
+│  Step 2: Knowledge Retriever                 │ ← music_kb/*.md
+│    → TF-IDF inverted index retrieval         │   (genres, moods,
+│                                              │    energy, artists)
+│  Step 3: Song Scorer (original Module 3)     │ ← data/songs.csv
+│    → score_song() + recommend_songs()        │
+│  Step 4: LLM Explainer (few-shot Gemini)     │ ← GEMINI_API_KEY
+│    → grounded explanation using KB chunks    │
+│  Step 5: Confidence Assessor                 │
+│    → 0.0–1.0 score + guardrail at 0.4        │
+└──────────────────────────────────────────────┘
+         ↓
+Recommendations + AI Explanations + Confidence Score
+         ↓
+   Streamlit UI (3 modes) / CLI / Test Harness
+```
+
+The system also supports a **Fine-Tuning Comparison** mode that shows few-shot vs. baseline LLM output side by side, and a **Baseline** mode that runs only the original VibeFinder 1.0 scoring for direct comparison.
+
+---
+
+## Setup
+
+### 1. Clone or copy the repo
+
+```bash
+git clone <your-repo-url>
+cd applied-rag-system
+```
+
+### 2. Create a virtual environment (recommended)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Mac/Linux
+.venv\Scripts\activate      # Windows
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+### 4. Set up your API key
 
 ```bash
+cp .env.example .env
+# Edit .env and add your Gemini API key
+# Get one free at: https://aistudio.google.com/app/apikey
+```
+
+### 5. Run the Streamlit app
+
+```bash
+streamlit run app.py
+```
+
+Or run CLI tools:
+
+```bash
+# Original Module 3 recommender (no LLM)
 python -m src.main
+
+# Test harness
+python evaluation/test_harness.py
+
+# Retrieval evaluation (no API key needed)
+python evaluation/retrieval_eval.py
 ```
 
-### Running Tests
+---
 
-Run the starter tests with:
+## Sample Interactions
 
-```bash
-pytest
+### Example 1 — Pop / Happy / High Energy
+
+**Profile:** `genre=pop | mood=happy | energy=0.8`
+
+**Top 5 songs (scored):**
+```
+#1  Sunrise City  — Neon Echo         pop/happy     score 3.98
+#2  Gym Hero      — Max Pulse         pop/intense   score 2.87
+#3  Rooftop Lights — Indigo Parade    indie pop/happy score 1.96
+#4  Block Party Anthem — Crowd Control hip-hop/confident 1.78
+#5  Overdrive     — Pulse Grid        edm/energetic  score 1.93
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+**AI Explanation (RAG):**
+> Sunrise City is practically purpose-built for your taste — Neon Echo delivers pop's signature melodic clarity with irresistible happy energy at 0.82. The production feels current without being gimmicky. Gym Hero lands in second: it shares your genre but trades some happiness for intensity, pushing to 0.93 energy — perfect if your mood shifts toward wanting to push harder. Rooftop Lights brings indie pop's textural personality to the same happy mood, feeling effortless rather than driven.
+
+**Confidence:** 0.70 | **Guardrail:** PASSED
 
 ---
 
-## Experiments You Tried
+### Example 2 — Jazz / Relaxed / Low Energy
 
-### Profile Tests
+**Profile:** `genre=jazz | mood=relaxed | energy=0.37`
 
-Four profiles were tested against the 20-song catalog. Terminal output for each is below.
+**Top 5 songs (scored):**
+```
+#1  Coffee Shop Stories — Slow Stereo  jazz/relaxed  score 4.00
+#2  Adagio in Grey — Vienna Strings    classical/melancholic score 1.13
+#3  River Bottom Blues — Dusty Hale   blues/soulful  score 1.09
+#4  Library Rain — Paper Lanterns     lofi/chill     score 0.98
+#5  Campfire Lullaby — Cedar & Ash    folk/peaceful  score 0.71
+```
 
-**Happy Pop** `genre=pop | mood=happy | energy=0.8`
-- #1 Sunrise City (3.98/4.00) — near-perfect: pop, happy, energy 0.82. Almost the maximum possible score.
-- #2 Gym Hero (2.87) — same genre, wrong mood (intense), energy close. Genre alone accounts for most of the score.
-- Takeaway: works intuitively. A song has to match all three signals to dominate.
+**AI Explanation (RAG):**
+> Coffee Shop Stories achieves a rare perfect score — Slow Stereo's jazz warmth, relaxed mood, and 0.37 energy align precisely with your profile. Jazz's conversational quality, where instruments respond to each other in real time, is exactly what this track delivers. Adagio in Grey reaches slightly outside your genre into classical, but its meditative low energy and emotional depth make it a natural companion for a quiet evening.
 
-**Chill Lofi** `genre=lofi | mood=chill | energy=0.35`
-- #1 Library Rain (4.00/4.00) — perfect score. Every signal aligned.
-- Top 3 are all lofi. The catalog has 3 lofi songs so they sweep the top results.
-- Takeaway: when multiple songs share the same genre, the catalog depth within that genre drives variety.
-
-**Deep Rock** `genre=rock | mood=intense | energy=0.9`
-- #1 Storm Runner (3.99/4.00) — near-perfect. But there is only one rock song in the catalog.
-- #2–5 are all from unrelated genres. Gym Hero (#2) scored because of mood match (intense) + energy, not genre.
-- Takeaway: **sparse genres are a major limitation**. One rock song means the recommender can't provide meaningful rock variety.
-
-**Adversarial EDM** `genre=edm | mood=peaceful | energy=0.95` *(conflicting signals)*
-- #1 Overdrive (edm/energetic, 2.99) — genre match wins even though mood is completely wrong.
-- #2 Campfire Lullaby (folk/peaceful, 1.34) — only song with a peaceful mood, but it scores low because its energy (0.29) is far from the target 0.95.
-- Takeaway: the system cannot satisfy conflicting preferences. High energy AND peaceful is not representable in the current scoring model.
+**Confidence:** 0.70 | **Guardrail:** PASSED
 
 ---
 
-### Experiment: Swapping Genre and Mood Weights
+### Example 3 — Metal / Aggressive / High Energy
 
-**Default:** genre +2.0, mood +1.0  
-**Modified:** genre +1.0, mood +2.0  
+**Profile:** `genre=metal | mood=aggressive | energy=0.97`
 
-Profile tested: `Happy Pop` (genre=pop, mood=happy, energy=0.8)
+**Top 5 songs (scored):**
+```
+#1  Iron Curtain — Wrath Engine       metal/aggressive score 4.00
+#2  Overdrive    — Pulse Grid         edm/energetic    score 1.96
+#3  Storm Runner — Voltline           rock/intense     score 1.06
+#4  Gym Hero     — Max Pulse          pop/intense      score 0.90
+#5  Block Party Anthem — Crowd Control hip-hop/confident 0.87
+```
 
-| Rank | Default weights | Mood-first weights |
-|---|---|---|
-| #1 | Sunrise City (3.98) | Sunrise City (3.98) — unchanged |
-| #2 | Gym Hero (2.87) | **Rooftop Lights (2.96)** |
-| #3 | Rooftop Lights (1.96) | **Gym Hero (1.87)** |
+**AI Explanation (RAG):**
+> Iron Curtain is the catalog's most extreme track — Wrath Engine operates at maximum sonic intensity (0.97 energy, 174 BPM, metal/aggressive), and it scores a perfect match against your profile. Metal provides cathartic emotional release through extreme sonic density, and this track delivers exactly that. Overdrive is the only other high-energy option that comes close in raw intensity, though EDM's energetic euphoria is a different kind of force than metal's aggression.
 
-Gym Hero (pop/intense) and Rooftop Lights (indie pop/happy) swapped positions. When mood is worth more, "happy" from the wrong genre beats "pop" from the wrong mood. The #1 result didn't change because Sunrise City matches both signals regardless of which weight is higher.
+**Confidence:** 0.70 | **Guardrail:** PASSED
 
 ---
 
-## Limitations and Risks
+## Design Decisions
 
-- **Sparse catalog:** Most genres have only 1 song. A rock or metal user gets one good result and four unrelated ones.
-- **Genre dominates by default:** The `balanced` mode weights genre at +2.0 vs mood at +1.0. Switching to `mood-first` mode addresses this, but the tradeoff shifts rather than disappears.
-- **No memory:** The same profile produces the same results every run — no adaptation, no variety over time.
-- **No negative scoring:** Even a completely wrong song earns a small positive energy score, adding noise to every ranking.
-- **No language or lyrics:** The system has no understanding of song meaning, only numeric attributes.
+### Why RAG over pure LLM generation?
+Free-form LLM generation hallucinates artist facts and genre history. RAG constrains the model to use only what was retrieved from the knowledge base — the explanation can only cite facts that exist in `music_kb/`. This is enforced both in the prompt ("use ONLY the retrieved context") and observable via the confidence score.
 
-See [model_card.md](model_card.md) for a full analysis.
+### Why keep the original scoring algorithm?
+The Module 3 scoring (`score_song`, `recommend_songs`) already works well for ranking. RAG adds the *explanation layer* on top — it doesn't replace the ranking logic, it enriches it. The Baseline mode lets users see the difference directly.
+
+### Why a TF-IDF inverted index instead of vector embeddings?
+Vector embeddings (e.g., Gemini's text-embedding-004) require an API call per document per query. An inverted index runs entirely offline, is instantaneous, and is sufficient for a 4-document knowledge base with rich keyword overlap. The tradeoff is semantic gap: "energetic" won't retrieve "high BPM" unless both terms appear explicitly. The knowledge base was written with this in mind (energy profile descriptions use all the relevant terms).
+
+### Why few-shot prompting for the "fine-tuning" stretch?
+Full fine-tuning requires a training dataset and model-weight updates. Few-shot prompting achieves specialized behavior with 2-3 examples in the prompt — enough to establish consistent "music journalist" tone and grounding behavior without infrastructure. The Fine-Tuning Comparison mode makes this difference visible side-by-side.
+
+### Confidence scoring design
+Three signals are blended: retrieval coverage (how many chunks were found), LLM self-rating (the model judges its own groundedness), and response completeness (non-empty, substantive length). The guardrail threshold (0.4) is conservative — it triggers only when retrieval fails AND the LLM self-rates low AND the response is short.
+
+---
+
+## Testing Summary
+
+### Unit tests
+```
+pytest tests/     →  2/2 PASSED  (original recommender logic, unchanged)
+```
+
+### Test harness (6 profiles)
+```
+python evaluation/test_harness.py   →  6/6 PASSED
+Average confidence: 0.70
+```
+All 6 predefined profiles (pop/happy, lofi/chill, rock/intense, hip-hop/confident, jazz/relaxed, metal/aggressive) returned the correct top genre match, passed the confidence threshold (≥0.50), produced non-empty explanations, and completed all 5 agent steps.
+
+### Retrieval evaluation
+```
+python evaluation/retrieval_eval.py
+Single-source  hit rate: 100%   avg coverage: 0.46
+Multi-source   hit rate: 75%    avg coverage: 0.54
+```
+Multi-source retrieval shows +17% higher average coverage score, demonstrating that the richer knowledge base provides more relevant context when the right documents are retrieved. The lower hit rate in multi-source reveals a real limitation: with 4 competing documents, high-scoring artist context chunks can displace expected genre/mood files in the top-3 document window — an area for future improvement.
+
+### What worked, what didn't, what I learned
+- **Worked:** The inverted index retrieves relevant chunks reliably for genre+mood+energy queries. Confidence scoring is stable and the guardrail triggers correctly on empty retrieval.
+- **Didn't work as expected:** Multi-source retrieval has a lower "hit rate" than single-source by the strict metric, which seems counterintuitive. It reveals that more documents means more competition for limited retrieval slots — a real RAG design tradeoff.
+- **Learned:** RAG design requires careful attention to both the retrieval mechanism AND the knowledge base content. The KB files had to be written with retrieval in mind (making sure every genre/mood term appears explicitly) for the keyword index to work.
 
 ---
 
 ## Reflection
 
-[**Model Card**](model_card.md)
-<br>
-[**Prompt Guide Notes**](https://gist.github.com/kyleclai/c4a8aeba98d4bdd12b5d53ae87ad0233)
+### What this project taught me about AI
+Building VibeFinder RAG made concrete something I understood abstractly: the difference between a model *knowing* something and a system *reliably accessing* it. The original VibeFinder scored songs correctly but couldn't explain *why* in any meaningful way — it knew the rules, but couldn't articulate them. Adding RAG didn't just add explanations; it forced me to externalize knowledge into a form the system could retrieve and verify, rather than hoping the LLM would remember it correctly. That act of knowledge engineering — deciding what goes in the KB, how it's chunked, which terms need to appear — turned out to be as important as the retrieval algorithm itself.
 
-The most surprising thing about building this was how fast three simple rules started to feel like a real recommendation. Score every song, sort the list, return the top results — that loop alone is enough to produce output that often matches your gut feeling about what you'd want to hear. It made the core idea behind Spotify or YouTube feel much less mysterious. The intelligence isn't in the math; it's in the quality of the features and the size of the catalog.
+The confidence scoring was the most surprising component to build. I expected it to be simple, but it revealed real complexity: a high-confidence score doesn't mean the explanation is *correct*, only that it's *grounded*. The system can still produce a fluent, well-grounded explanation that a music expert would find shallow. That gap between groundedness and accuracy is where real AI reliability work happens.
 
-What changed how I think about real apps is how badly a simple system breaks under contradictory input. When I tested a profile that asked for high energy AND a peaceful mood, the system had no way to satisfy both signals — it just picked a winner (genre) and ignored the conflict. Real platforms face this constantly with users who have genuinely mixed taste, and the difference is that they have thousands of features per song and millions of listeners to learn from. Building a system that fails clearly makes the gap between simple scoring and real personalization feel very concrete.
+---
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `src/recommender.py` | Original Module 3 scoring logic — unchanged |
+| `src/rag_retriever.py` | TF-IDF inverted index retriever over `music_kb/` |
+| `src/llm_client.py` | Gemini 2.5 Flash client — few-shot + baseline prompts |
+| `src/agent.py` | 5-step agentic orchestrator with logging |
+| `src/confidence.py` | Confidence scoring and guardrail logic |
+| `music_kb/*.md` | Genre, mood, energy, and artist knowledge base |
+| `app.py` | Streamlit UI — RAG, Baseline, and Fine-Tuning modes |
+| `evaluation/test_harness.py` | Automated test harness — 6 profiles, pass/fail |
+| `evaluation/retrieval_eval.py` | Single-source vs. multi-source retrieval comparison |
+| `model_card.md` | AI collaboration, bias analysis, ethics reflection |
+| `logs/agent_run.log` | Auto-generated agent run logs |

@@ -1,92 +1,142 @@
-# 🎧 Model Card: Music Recommender Simulation
+# Model Card — VibeFinder RAG
 
-## 1. Model Name
+## 1. Model Name and Version
 
-**VibeFinder 1.0**
+**VibeFinder RAG v1.0**  
+Extended from: VibeFinder 1.0 (Module 3 — Music Recommender Simulation)  
+LLM backbone: Gemini 2.5 Flash (`gemini-2.5-flash`) via Google Generative AI API  
+Retrieval: TF-IDF inverted index over a 4-document music knowledge base
 
 ---
 
 ## 2. Intended Use
 
-VibeFinder 1.0 suggests songs from a small catalog based on a user's preferred genre, mood, and energy level. It is designed for classroom exploration of how content-based recommendation systems work — not for use in a real product.
+VibeFinder RAG is a music recommendation system designed for individual listeners who want both ranked recommendations AND grounded natural-language explanations for why those recommendations fit their taste.
 
-The system assumes the user can describe their taste with a single genre, a single mood label, and a target energy level between 0.0 and 1.0. It does not learn from listening history, does not adapt over time, and does not account for the fact that real musical taste is more complex than three attributes. It should not be used to make recommendations for real users or to draw conclusions about what music people "should" hear.
+**Primary users:** Individual music listeners exploring a curated catalog  
+**Use context:** Personal listening assistance, music discovery  
+**Out of scope:** Commercial music platform deployment, real-time streaming catalog access, personalization based on listening history
 
 ---
 
-## 3. How the Model Works
+## 3. How It Works
 
-Imagine you hand a friend a list of your three favorite things about music: your favorite genre (like pop or jazz), the mood you want (like happy or chill), and how energetic you want it to feel on a scale from calm to intense. Your friend then goes through every song in a catalog and gives each one a score based on how well it matches your preferences.
+The system runs a 5-step pipeline:
 
-That is exactly what VibeFinder does. For each song, it checks whether the genre matches your favorite (worth 2 points), whether the mood matches (worth 1 point), and how close the song's energy level is to your target (worth up to 1 point — the closer, the more points). The maximum possible score is 4.0. After every song is scored, the list is sorted from highest to lowest, and the top results are returned along with an explanation of why each song ranked where it did.
+1. **Profile Analysis** — Extracts genre, mood, and energy-level search terms from the user's taste profile
+2. **Knowledge Retrieval** — Uses an inverted word index to find relevant chunks from `music_kb/` documents (genres, moods, energy profiles, artist context)
+3. **Song Scoring** — Applies the original Module 3 weighted scoring algorithm: genre match (+2.0 balanced), mood match (+1.0), energy proximity (continuous)
+4. **LLM Generation** — Gemini 2.5 Flash generates an explanation using only the retrieved chunks and song metadata; few-shot examples constrain the output to a "music journalist" style
+5. **Confidence Assessment** — Blends retrieval coverage, LLM self-rating, and response completeness into a 0.0–1.0 score; triggers a guardrail fallback if confidence < 0.4
 
-The "energy score" is the most interesting part: instead of simply rewarding high-energy or low-energy songs, it rewards songs that are *close* to whatever energy level you asked for. A calm user gets credit for calm songs; a high-energy user gets credit for intense ones.
+**Modes:**
+- **RAG-Enhanced** — Full pipeline with LLM explanations
+- **Baseline** — Original Module 3 scoring only (no retrieval, no LLM)
+- **Fine-Tuning Comparison** — Side-by-side few-shot vs. baseline LLM output
 
 ---
 
 ## 4. Data
 
-The catalog conta ins 20 songs stored in `data/songs.csv`. The original starter file had 10 songs; 10 more were added to expand genre and mood coverage.
+**Catalog:** 20 songs with 12 attributes each (`data/songs.csv`)  
+Attributes: id, title, artist, genre, mood, energy, tempo_bpm, valence, danceability, acousticness, popularity, release_decade
 
-Genres represented: pop, lofi, rock, ambient, jazz, synthwave, indie pop, hip-hop, edm, country, classical, r&b, folk, metal, blues, reggae, electronic (17 total).
+**Knowledge Base:** 4 manually authored `.md` files in `music_kb/`:
+- `genres.md` — Descriptions of 17 genres in the catalog
+- `moods.md` — Descriptions of 16 mood categories
+- `energy_profiles.md` — What low/medium/high energy levels feel like
+- `artist_context.md` — Brief notes on 18 artists
 
-Moods represented: happy, chill, intense, relaxed, moody, focused, confident, energetic, nostalgic, melancholic, romantic, peaceful, aggressive, soulful, uplifting, dreamy (16 total).
-
-Each song includes numeric features for energy (0.0–1.0), tempo in BPM, valence (musical positivity), danceability, and acousticness — though VibeFinder 1.0 only uses energy in its scoring. The other features exist in the data but are not currently factored into recommendations.
-
-The dataset was constructed manually for classroom purposes. It does not reflect real streaming data, real listener behavior, or any demographic. Genres like lofi and pop have 3 songs each while most other genres have only 1, which creates an uneven distribution.
+All knowledge base content was authored specifically for this system. No external datasets were used for retrieval. All songs are fictional.
 
 ---
 
 ## 5. Strengths
 
-VibeFinder works best when the user's preferred genre has multiple songs in the catalog. For the "Chill Lofi" profile (genre=lofi, mood=chill, energy=0.35), the top result scored a perfect 4.00 out of 4.00, and the top three results were all genuinely chill lofi tracks — the results matched musical intuition exactly.
-
-The system is fully transparent. Every recommendation comes with a plain-language explanation of exactly which signals contributed to its score, which makes it easy to understand why a song was suggested and to spot when the logic is wrong. Unlike a neural network, there is no hidden behavior — you can trace every point back to a specific rule.
-
-The scoring is also symmetric: it does not inherently favor high-energy or low-energy songs. A user who wants very quiet music (energy=0.2) and a user who wants very loud music (energy=0.95) both get the same quality of energy-based scoring, because the formula measures distance from the target rather than rewarding a particular direction.
+- **Grounded explanations:** The RAG system constrains the LLM to use only retrieved content, significantly reducing hallucination risk compared to free-form generation
+- **Transparent pipeline:** All 5 agent steps are logged and visible in the UI — the system's reasoning is observable
+- **Preserves original logic:** The Module 3 scoring algorithm is unchanged; RAG adds explanation without altering ranking
+- **Graceful degradation:** Works without an API key (no LLM, but scoring and retrieval still function)
+- **Measurable improvement:** The retrieval evaluation quantifies the benefit of multi-source KB over single-source
 
 ---
 
 ## 6. Limitations and Bias
 
-The genre weight (+2.0) is double the mood weight (+1.0), which means a genre match dominates the score even when the mood is completely wrong. A user who asks for "peaceful EDM" will receive an energetic EDM track at #1 simply because genre alignment outweighs the mood mismatch. This is a built-in structural bias toward genre over feel.
+### Sparse catalog
+With only 1–2 songs per genre, genre match almost guarantees a top-3 finish regardless of mood or energy. Users asking for "metal" will get one good match and four unrelated ones. The RAG explanation layer can help contextualize why the top result dominates, but it cannot fix catalog sparsity.
 
-The catalog only has one rock song, one metal song, and one country song. Users with those genre preferences will see that single song at #1 and then get unrelated songs at #2–5 sorted purely by energy — the recommender cannot provide meaningful variety for underrepresented genres. This creates an unequal experience depending on which genre a user prefers.
+### Genre dominance in scoring
+In `balanced` mode, the genre weight (+2.0) is double the mood weight (+1.0). This means a wrong-genre but correct-mood song can rank below a correct-genre but wrong-mood song. The `mood-first` scoring mode addresses this, but the tradeoff shifts rather than disappears.
 
-The system has no memory and no personalization. Every run with the same profile produces the same result regardless of what the user has already heard. Real users eventually dislike repetition, but this system will keep recommending the same top songs indefinitely.
+### Keyword retrieval blind spots
+The TF-IDF inverted index cannot handle semantic gaps. If a user describes wanting "melancholic late-night music" and the knowledge base uses "moody" or "dreamy" instead, retrieval may miss relevant chunks. The knowledge base was written to minimize this, but edge cases remain.
 
-The energy score never goes negative — even a song with completely wrong energy gets a small positive score — which means every song contributes some noise to the ranking even when it should be excluded entirely.
+### Confidence score reliability
+The confidence score is a proxy, not a guarantee. A high confidence (0.70+) means the explanation is *grounded* — not that it is *correct*. An explanation grounded in retrieved facts can still be shallow or musically debatable.
+
+### Fixed knowledge base
+The knowledge base was hand-authored for this catalog. Adding new songs or genres requires manually updating KB files — there is no automated ingestion pipeline.
+
+### No temporal adaptation
+The system has no memory — identical profiles always produce identical results. It cannot learn from user feedback or adapt to preference drift over time.
 
 ---
 
-## 7. Evaluation
+## 7. Evaluation Results
 
-Four user profiles were tested against the 20-song catalog:
+### Unit tests
+```
+pytest tests/  →  2/2 PASSED  (original recommender logic unchanged)
+```
 
-- **Happy Pop** (genre=pop, mood=happy, energy=0.8) — top result was nearly perfect (3.98/4.00). Results matched musical intuition well.
-- **Chill Lofi** (genre=lofi, mood=chill, energy=0.35) — produced a perfect 4.00/4.00 top result. The three lofi songs swept the top 3.
-- **Deep Rock** (genre=rock, mood=intense, energy=0.9) — only one rock song exists, so positions #2–5 were filled by unrelated genres ranked purely by energy.
-- **Adversarial EDM** (genre=edm, mood=peaceful, energy=0.95) — conflicting signals. The system surfaced an energetic EDM track at #1 (genre won) and a quiet folk song at #2 (the only peaceful track), with a score gap of 1.65 points between them. The system had no way to represent the contradiction.
+### Test harness (6 predefined profiles)
+```
+6/6 tests PASSED
+Average confidence: 0.70
+All profiles: correct genre match, confidence ≥ 0.5, non-empty explanations, 5/5 steps complete
+```
 
-One logic experiment was run: swapping genre weight (2.0→1.0) and mood weight (1.0→2.0) for the Happy Pop profile. The #2 and #3 results swapped — Rooftop Lights (indie pop/happy) rose above Gym Hero (pop/intense) because mood alignment became worth more than genre alignment. The #1 result was unchanged since it matched both signals regardless of weighting.
+### Retrieval evaluation
+```
+Single-source (genres.md):   hit rate 100%  avg coverage 0.46
+Multi-source (all 4 files):  hit rate 75%   avg coverage 0.54
+```
+Multi-source retrieval improves average coverage by +17%, meaning it retrieves more of the expected documents when it finds the right ones. The lower hit rate with multi-source is a real tradeoff: more competing documents can displace expected files from the top-3 retrieval window — a genuine RAG design limitation to improve on.
 
-The two automated tests in `tests/test_recommender.py` both pass, confirming that the `Recommender` class correctly ranks a pop/happy song above a lofi/chill song for a pop/happy user profile, and that `explain_recommendation` returns a non-empty string.
+### Confidence scoring behavior
+Without an LLM (API key not set): confidence defaults to ~0.70 (high retrieval coverage + neutral LLM signal + complete explanation message). With an LLM: confidence reflects actual LLM self-rating and may vary between 0.4–0.95 depending on profile-KB alignment.
 
 ---
 
 ## 8. Future Work
 
-**Add a diversity penalty.** Right now the same artist or genre can appear multiple times in the top results. A simple rule — reduce the score of any song whose genre already appears in the top results — would force more variety into the recommendations and reduce the "filter bubble" effect.
-
-**Use more song features in scoring.** The catalog already has valence, danceability, and acousticness for every song, but VibeFinder 1.0 ignores them. Adding a user preference for acousticness (does the user want live/acoustic or produced/electronic?) and incorporating it into the score would make recommendations much more nuanced, especially for profiles where energy alone is not enough to differentiate songs.
-
-**Expand the catalog and balance genres.** Most genres in the current dataset have only one song. A real content-based recommender needs at least 5–10 songs per genre to provide meaningful variety. Doubling the catalog size and ensuring each genre has at least 3 songs would make the recommender significantly more useful across all profile types.
+- **Embedding-based retrieval:** Replace the inverted index with vector similarity to handle semantic gaps
+- **Catalog expansion:** Add 50–100 songs per genre for genuine within-genre diversity
+- **User feedback loop:** Let users rate explanations; use ratings to improve retrieval weights
+- **Multi-turn conversation:** Support follow-up questions ("Why is this ranked above X?")
+- **Diversity penalty:** Penalize same-genre/artist clustering in top-K results
 
 ---
 
-## 9. Personal Reflection
+## 9. Reflection
 
-The most surprising thing about building this was how quickly a very simple set of rules starts to feel like a real recommendation. Three numbers — genre match, mood match, energy distance — are enough to produce results that often match your gut feeling about what you'd want to hear. It made me realize that "AI recommendation" doesn't always mean something mysterious or complex. A lot of what Spotify or YouTube does at its core is this same loop: score every candidate, sort by score, return the top results. The intelligence is mostly in the quality of the features and the size of the catalog, not in the math itself.
+### AI Collaboration During This Project
 
-What changed how I think about real recommendation apps is the adversarial profile test. When I gave the system a contradictory preference — high energy AND peaceful mood — it had no way to handle it and just picked a winner (genre) and ignored the loser (mood). Real platforms face this constantly: a user who listens to both aggressive metal and quiet classical is genuinely hard to serve. The difference is that Spotify has thousands of features per song and millions of users to learn from, so it can find patterns that a three-rule system never could. Building this made the gap between "simple scoring" and "real personalization" feel very concrete.
+**Helpful suggestion:** When designing the confidence scoring function, the AI (Claude) suggested splitting the signal into three independent components (retrieval coverage, LLM self-rating, response completeness) rather than using a single heuristic. This modular approach made it much easier to tune thresholds and debug cases where confidence was unexpectedly low or high. The separation of concerns made the scoring transparent and auditable.
+
+**Flawed suggestion:** The AI initially suggested using `logging.basicConfig()` at the module level in `agent.py`, which can add duplicate log handlers when modules are reloaded — a subtle Python logging issue common in Streamlit environments. The fix was to verify handler state before configuration, which the initial suggestion overlooked.
+
+### Limitations and Biases Revisited
+
+The most significant bias in VibeFinder RAG is inherited from the catalog: sparse genre representation means the scoring algorithm and the retrieval system both over-reward genre match. A user asking for "metal" essentially has one good option. The RAG explanation layer can contextualize this, but cannot compensate for it.
+
+The knowledge base introduces a second bias: it was authored by one person, meaning genre and mood descriptions reflect a particular perspective on music. The KB is a simplification designed for retrieval quality, not a musicological authority.
+
+### Could This System Be Misused?
+
+The primary risk is over-trust: treating AI explanations as authoritative musical expertise. The confidence score and source citations exist to make limitations visible, but users may not read them. The few-shot prompting makes outputs sound authoritative even when KB coverage is thin — the guardrail threshold is conservative by design to avoid blocking most legitimate use.
+
+### What Surprised Me
+
+The most surprising finding was that multi-source retrieval can decrease hit rate while increasing coverage quality. Intuitively, more documents should always improve retrieval. In practice, more competing documents means the retrieval window fills faster with off-target matches, potentially displacing directly relevant files. This counterintuitive result is the clearest evidence that RAG quality is not just about having more data — it's about how retrieval mechanisms allocate attention across that data.
