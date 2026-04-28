@@ -22,7 +22,7 @@ The result is a system that not only ranks songs but *explains* why they fit —
 
 ## Demo Walkthrough
 
-> 🎥 **[Loom video walkthrough — add link here before submission]**
+> 🎥 **[Video Walkthrough](https://washington.zoom.us/rec/share/NKOTFE8WMiZQ5Xbf1wvKE-mR4SEFKYt9JwmfxeCYCT5ptlmUxcT-Da_xLXkHdhOk.S8E9diDjTBIwkPDV?startTime=1777351320000)**
 
 ---
 

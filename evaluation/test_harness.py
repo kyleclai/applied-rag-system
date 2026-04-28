@@ -1,6 +1,7 @@
 """Test harness: runs 6 predefined profiles through the RAG pipeline and prints pass/fail."""
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -103,6 +104,10 @@ def run_test_harness():
         except Exception as e:
             records.append({"name": tc["name"], "passed": False, "confidence": 0.0})
             print(f"\n[FAIL] {tc['name']} — ERROR: {e}")
+
+        # Pause between tests to stay under Gemini free-tier rate limit (10 RPM)
+        if _llm is not None:
+            time.sleep(15)
 
     # ── Summary ──────────────────────────────────────────────────────────────
     passed_count = sum(1 for r in records if r["passed"])

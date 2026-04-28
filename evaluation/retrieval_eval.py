@@ -1,4 +1,5 @@
 """Retrieval evaluation: compare single-source vs. multi-source knowledge retrieval."""
+
 import os
 import sys
 
@@ -9,13 +10,19 @@ from src.rag_retriever import MusicKnowledgeRetriever
 # Queries and the KB files expected to contain relevant chunks
 TEST_QUERIES = [
     ("pop happy high energy", ["genres.md", "moods.md", "energy_profiles.md"]),
-    ("jazz relaxed low energy", ["genres.md", "moods.md", "energy_profiles.md"]),
+    (
+        "jazz relaxed low energy",
+        ["genres.md", "moods.md", "energy_profiles.md"],
+    ),
     ("metal aggressive intense", ["genres.md", "moods.md"]),
     ("lofi chill focused", ["genres.md", "moods.md"]),
     ("hip-hop confident medium energy", ["genres.md", "moods.md"]),
     ("ambient dreamy electronic", ["genres.md", "moods.md"]),
     ("Voltline Storm Runner rock", ["artist_context.md", "genres.md"]),
-    ("Vienna Strings classical melancholic", ["artist_context.md", "genres.md"]),
+    (
+        "Vienna Strings classical melancholic",
+        ["artist_context.md", "genres.md"],
+    ),
 ]
 
 
@@ -35,7 +42,9 @@ def evaluate_retrieval(retriever: MusicKnowledgeRetriever, label: str):
         coverage = found / len(expected_sources)
         total_coverage += coverage
         status = "HIT " if hit else "MISS"
-        print(f"  [{status}] '{query[:40]:<40}' → {sorted(retrieved_sources)} (cov {coverage:.2f})")
+        print(
+            f"  [{status}] '{query[:40]:<40}' → {sorted(retrieved_sources)} (cov {coverage:.2f})"
+        )
 
     hit_rate = hits / len(TEST_QUERIES)
     avg_coverage = total_coverage / len(TEST_QUERIES)
@@ -51,18 +60,26 @@ def run_retrieval_eval():
 
     # Single-source: genres.md only
     single = MusicKnowledgeRetriever(kb_folder="music_kb")
-    single.documents = [(f, t) for f, t in single.documents if f == "genres.md"]
+    single.documents = [
+        (f, t) for f, t in single.documents if f == "genres.md"
+    ]
     single.index = single.build_index(single.documents)
-    single_hit, single_cov = evaluate_retrieval(single, "Single-Source (genres.md only)")
+    single_hit, single_cov = evaluate_retrieval(
+        single, "Single-Source (genres.md only)"
+    )
 
     # Multi-source: all kb files
     multi = MusicKnowledgeRetriever(kb_folder="music_kb")
-    multi_hit, multi_cov = evaluate_retrieval(multi, "Multi-Source (all 4 kb files)")
+    multi_hit, multi_cov = evaluate_retrieval(
+        multi, "Multi-Source (all 4 kb files)"
+    )
 
     # Summary table
     print("\n" + "=" * 68)
     print("COMPARISON")
-    print(f"  {'Metric':<30} {'Single-Source':>15} {'Multi-Source':>14} {'Δ':>6}")
+    print(
+        f"  {'Metric':<30} {'Single-Source':>15} {'Multi-Source':>14} {'Δ':>6}"
+    )
     print(f"  {'-'*30} {'-'*15} {'-'*14} {'-'*6}")
     print(
         f"  {'Hit Rate':<30} {single_hit:>14.0%} {multi_hit:>13.0%} "
